@@ -5,10 +5,10 @@ Adobe Air Native Extension for wandoujia, you can call wandoujia APIs with the a
 
 The latest wandoujia sdk used in the com.wanglailai.ane4wdj.ane, you can directly use the ane in your project or copy the source code to your ane project.
 
-Directories:
-./flash/  (Flex Library Project)
-./jar/    (Android Project)
-./build/ (ant project to build ane file.)
+Directories:<br/>
+./flash/  (Flex Library Project)<br/>
+./jar/    (Android Project)<br/>
+./build/ (ant project to build ane file.)<br/>
 ./ANETestApp/ (ActionScript Mobile Project)-Demo used ane4wdj
 
 If any doubts, please feel free to contact me.
