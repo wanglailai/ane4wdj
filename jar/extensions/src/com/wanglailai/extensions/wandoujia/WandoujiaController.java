@@ -4,19 +4,17 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 import android.app.Activity;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.adobe.fre.FREContext;
-import com.wandoujia.sdk.plugin.paydef.LoginCallBack;
-import com.wandoujia.sdk.plugin.paydef.PayCallBack;
-import com.wandoujia.sdk.plugin.paydef.User;
-import com.wandoujia.sdk.plugin.paydef.WandouAccount;
-import com.wandoujia.sdk.plugin.paydef.WandouOrder;
-import com.wandoujia.sdk.plugin.paydef.WandouPay;
-import com.wandoujia.sdk.plugin.paysdkimpl.PayConfig;
-import com.wandoujia.sdk.plugin.paysdkimpl.WandouAccountImpl;
-import com.wandoujia.sdk.plugin.paysdkimpl.WandouPayImpl;
-import com.wandoujia.wandoujiapaymentplugin.utils.MSG;
+import com.wandoujia.mariosdk.plugin.api.api.WandouGamesApi;
+import com.wandoujia.mariosdk.plugin.api.model.callback.OnLoginFinishedListener;
+import com.wandoujia.mariosdk.plugin.api.model.callback.OnPayFinishedListener;
+import com.wandoujia.mariosdk.plugin.api.model.model.LoginFinishType;
+import com.wandoujia.mariosdk.plugin.api.model.model.PayResult;
+import com.wandoujia.mariosdk.plugin.api.model.model.UnverifiedPlayer;
+import com.wandoujia.mariosdk.plugin.api.model.model.WandouPlayer;
 import com.wanglailai.extensions.PurchasedItem;
 import com.wanglailai.extensions.UserProfile;
 
@@ -57,18 +55,14 @@ public class WandoujiaController {
     private ArrayList<PurchasedItem> mOwnedItems;
     private HashMap<String, PurchasedItem> mProcessedItems = new HashMap<String, PurchasedItem>();
     
-    // 初始化支付实例
-    private WandouPay wandoupay;
-    // 初始化账户实例
-    private WandouAccount account;
+    private WandouGamesApi wandouGamesApi;
     protected WandoujiaController(FREContext context){
     	mContext = context;
     	_activity = context.getActivity();
     	
     	mOwnedItems = new ArrayList<PurchasedItem>();
     	
-    	wandoupay = new WandouPayImpl();
-    	account = new WandouAccountImpl();
+//    	WandouGamesApi.initPlugin(_activity, APP_KEY, SECURITY_KEY);
     }
     
     private String _appName;
@@ -77,13 +71,17 @@ public class WandoujiaController {
 			return;
 		}
     	_appName = appName;
-    	PayConfig.init(_activity, appkey_id, seckey);
+//    	WandouGamesApi.initPlugin(_activity, Long.parseLong(appkey_id), seckey);
+    	
+    	wandouGamesApi = new WandouGamesApi.Builder(_activity, Long.parseLong(appkey_id), seckey).create();
+    	wandouGamesApi.init(_activity);
+        wandouGamesApi.setLogEnabled(false);
     	inited = true;
     }
     
     /**登陆豌豆荚平台*/
     public void login(){
-    	account.doLogin(_activity, mLoginCallback);
+    	wandouGamesApi.login(mLoginCallback);
     }
     
 	public UserProfile getUser() {
@@ -100,11 +98,9 @@ public class WandoujiaController {
     		return;
     	}
          // 三个参数分别是 游戏名(String)，商品(String)，价格(Long)单位是分
-    	WandouOrder order = new WandouOrder(_appName, productName, amount);
-    	order.out_trade_no = orderId;
     	_currentItem = new PurchasedItem(orderId, productName, (int)amount);
     	_currentItem.state = TRANSACTION_STATE_PURCHASING;
-    	wandoupay.pay(_activity, order, mPayCallback);
+    	wandouGamesApi.pay(_activity, productName, amount, orderId, mPayCallback);
     }
     
 	@SuppressWarnings("unchecked")
@@ -130,25 +126,8 @@ public class WandoujiaController {
 	
     //--------------调用支付接口--------------
     // 支付的回调
-    private PayCallBack mPayCallback = new PayCallBack() {
+    private OnPayFinishedListener mPayCallback = new OnPayFinishedListener() {
 
-		@Override
-		public void onError(User user, WandouOrder order) {
-			Log.w(TAG, "onError:"+user.getNick() + "Trade Failed:" + order);
-			_currentItem.state = TRANSACTION_STATE_FAILED;
-			if(order != null){
-				_currentItem.platformPayload = order.toJSONString();
-			}
-			dispatchEvent();
-		}
-
-		@Override
-		public void onSuccess(User user, WandouOrder order) {
-			Log.i(TAG, "onSuccess:" + order + " status:" + order.status(WandouOrder.TRADE_SUCCESS));
-			_currentItem.state = TRANSACTION_STATE_PURCHASED;
-			dispatchEvent();
-		}
-		
 		private void dispatchEvent(){
 			Boolean raiseEvent = false;
 			 synchronized(mOwnedItems) {
@@ -167,25 +146,43 @@ public class WandoujiaController {
          	}
         	 _currentItem = null;
 		}
-    };
-    
-    //豌豆荚 登录回调
-    private LoginCallBack mLoginCallback = new LoginCallBack(){
+
 		@Override
-		public void onError(int code, String info) {
-			Log.e(TAG, info + "\nmessage:" + MSG.trans(info));
-			mContext.dispatchStatusEventAsync(AUTHORIZED_EVENT, AUTHENTICATE_FAIL);
+		public void onPayFail(PayResult result) {
+			Log.w(TAG, "onError:"+result.getNick() + "Trade Failed:" + result.getOutTradeNo());
+			_currentItem.state = TRANSACTION_STATE_FAILED;
+			_currentItem.platformPayload = result.getData();
+			dispatchEvent();
 		}
 
 		@Override
-		public void onSuccess(User user, int type) {
-			Log.i(TAG, "user info:" + user.toString() + "\ntype:" + type);
-			_user = new UserProfile();
-			_user.uid = user.getUid() + "";
-			_user.name = user.getUsername();
-			_user.token = user.getToken();
-			_user.nick = user.getNick();
-			mContext.dispatchStatusEventAsync(AUTHORIZED_EVENT, AUTHENTICATE_SUCCESS);
+		public void onPaySuccess(PayResult result) {
+			Log.i(TAG, "onSuccess:" + result.getOutTradeNo() + " status:" + result.getStatus());
+			_currentItem.state = TRANSACTION_STATE_PURCHASED;
+			dispatchEvent();			
+		}
+    };
+    
+    //豌豆荚 登录回调
+    private OnLoginFinishedListener mLoginCallback = new OnLoginFinishedListener(){
+		@Override
+		public void onLoginFinished(LoginFinishType loginFinishType, UnverifiedPlayer unverifiedPlayer) {
+			 WandouPlayer wandouPlayer = wandouGamesApi.getCurrentPlayerInfo();
+			 
+			 if(wandouPlayer == null || TextUtils.isEmpty(wandouPlayer.getId()))
+			 {
+				 mContext.dispatchStatusEventAsync(AUTHORIZED_EVENT, AUTHENTICATE_FAIL); 
+			 }
+			 else
+			 {
+				 Log.i(TAG, "user info:" + wandouPlayer.toString() + "\ntype:" + loginFinishType);
+				 _user = new UserProfile();
+				_user.uid = wandouPlayer.getId();
+				_user.name = wandouPlayer.getNick();
+				_user.token = unverifiedPlayer.getToken();
+				_user.nick = wandouPlayer.getNick();
+				mContext.dispatchStatusEventAsync(AUTHORIZED_EVENT, AUTHENTICATE_SUCCESS);
+			 }
 		}
     	
     };
